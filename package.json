@@ -1,0 +1,47 @@
+{
+  "name": "valta-leak",
+  "version": "0.1.0",
+  "description": "Static analysis CLI that finds deterministic LLM-agent cost-exposure bugs (unbounded retry loops, unbounded while(true) agents, leaked system prompts) and computes a worst-case dollar exposure ceiling from real, dated model pricing.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "valta-leak": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "llm",
+    "cost",
+    "static-analysis",
+    "agents",
+    "openai",
+    "anthropic"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Billionaire664/valta-leak.git"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "gpt-tokenizer": "^2.5.0",
+    "ts-morph": "^23.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
