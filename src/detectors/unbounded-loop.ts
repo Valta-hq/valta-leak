@@ -1,6 +1,8 @@
 import { Node, SourceFile, SyntaxKind, WhileStatement, ForStatement } from "ts-morph";
-import { findLlmCalls, extractModelString } from "../llm-call.js";
-import { resolveModelPricing, computeHourlyExposure, PRICING_SNAPSHOT_DATE } from "../pricing.js";
+import { findLlmCalls } from "../llm-call.js";
+import { appendsToSentHistory } from "../history.js";
+import { estimateExposure } from "../estimate.js";
+import { DEFAULT_CONFIG, ValtaConfig } from "../config.js";
 import { Finding } from "../types.js";
 
 const BOUND_PATTERN = /\b(max\w*(steps|iterations|retries|attempts)|steps?\s*(>=?|>)\s*\d|iteration\w*\s*(>=?|>)\s*\d)\b/i;
@@ -22,17 +24,18 @@ function computeFinding(
   line: number,
   title: string,
   detail: string,
-  llmCallText: string,
-  approxTokensPerCall: number
+  body: Node,
+  approxTokensPerCall: number,
+  config: ValtaConfig
 ): Finding {
-  // Reuse the first matched call's model string if we can find one in a
-  // fresh parse isn't available here, so this stays a labeled estimate
-  // when a model string can't be pulled from the loop body directly.
-  const modelMatch = /model\s*:\s*["'`]([\w.-]+)["'`]/.exec(llmCallText);
-  const { pricing, matched } = resolveModelPricing(modelMatch?.[1] ?? "");
-  const inputTokens = approxTokensPerCall;
-  const outputTokens = Math.round(approxTokensPerCall * 0.3);
-  const maxExposurePerHour = computeHourlyExposure({ inputTokens, outputTokens, pricing });
+  const llmCalls = findLlmCalls(body);
+  const estimate = estimateExposure({
+    call: llmCalls[0] ?? null,
+    scope: body,
+    config,
+    approxTokensPerCall,
+    growingHistory: appendsToSentHistory(body, llmCalls),
+  });
 
   return {
     severity: "FAIL",
@@ -41,12 +44,17 @@ function computeFinding(
     file,
     line,
     detail,
-    maxExposurePerHour,
-    assumptionNote: `Assumes ~${inputTokens} input / ${outputTokens} output tokens per call and ${pricing.assumedLatencySeconds}s latency${matched ? "" : " (model string not found in loop body — using a mid-range fallback price, verify manually)"}. Pricing snapshot: ${PRICING_SNAPSHOT_DATE}.`,
+    maxExposurePerHour: estimate.maxExposurePerHour,
+    assumptionNote: estimate.assumptionNote,
+    ...(estimate.warnings.length > 0 ? { warnings: estimate.warnings } : {}),
   };
 }
 
-export function detectUnboundedLoop(sourceFile: SourceFile, approxTokensPerCall = 500): Finding[] {
+export function detectUnboundedLoop(
+  sourceFile: SourceFile,
+  config: ValtaConfig = DEFAULT_CONFIG,
+  approxTokensPerCall = 500
+): Finding[] {
   const findings: Finding[] = [];
   const file = sourceFile.getFilePath();
 
@@ -63,8 +71,9 @@ export function detectUnboundedLoop(sourceFile: SourceFile, approxTokensPerCall 
         stmt.getStartLineNumber(),
         "Unbounded while(true) agent loop calling an LLM SDK method",
         `This loop has no visible step/iteration limit, timeout, or AbortController — if the agent doesn't terminate the loop itself, it will call the API indefinitely.`,
-        bodyText,
-        approxTokensPerCall
+        body,
+        approxTokensPerCall,
+        config
       )
     );
   }
@@ -82,8 +91,9 @@ export function detectUnboundedLoop(sourceFile: SourceFile, approxTokensPerCall 
         stmt.getStartLineNumber(),
         "Unbounded for(;;) agent loop calling an LLM SDK method",
         `This loop has no condition and no visible step/iteration limit, timeout, or AbortController — if the agent doesn't terminate the loop itself, it will call the API indefinitely.`,
-        bodyText,
-        approxTokensPerCall
+        body,
+        approxTokensPerCall,
+        config
       )
     );
   }

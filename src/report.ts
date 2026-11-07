@@ -20,6 +20,11 @@ function relPath(p: string, cwd: string): string {
 export function printReport(result: ScanResult, cwd: string): void {
   const { findings, filesScanned } = result;
 
+  if (result.configPath) {
+    console.log(`${DIM}[valta-leak] Using config: ${relPath(result.configPath, cwd)}${RESET}`);
+    console.log("");
+  }
+
   if (findings.length === 0) {
     console.log(`${GREEN}[PASS]${RESET} No hardcoded keys found.`);
     console.log(`${GREEN}[PASS]${RESET} No structural cost-exposure patterns detected across ${filesScanned} file(s).`);
@@ -40,6 +45,9 @@ export function printReport(result: ScanResult, cwd: string): void {
       console.log(
         `       ${DIM}-> Maximum Exposure:${RESET} ~$${finding.maxExposurePerHour.toFixed(2)} / hour`
       );
+    }
+    for (const warning of finding.warnings ?? []) {
+      console.log(`       ${YELLOW}${warning}${RESET}`);
     }
     if (finding.assumptionNote) {
       console.log(`       ${DIM}-> Basis:${RESET} ${finding.assumptionNote}`);

@@ -15,9 +15,17 @@ export interface Finding {
   maxExposurePerHour?: number;
   /** What in this figure is an assumption vs a real, sourced number. */
   assumptionNote?: string;
+  /**
+   * Deterministic notices about inputs the scanner could not resolve at rest,
+   * e.g. a model name read from an environment variable. When present, the
+   * exposure figure is a full-context-window worst case.
+   */
+  warnings?: string[];
 }
 
 export interface ScanResult {
   filesScanned: number;
   findings: Finding[];
+  /** Path of the valta.config.json that was applied, or null when none was used. */
+  configPath?: string | null;
 }

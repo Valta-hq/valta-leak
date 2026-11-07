@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { detectMissingBackoff } from "./detectors/missing-backoff.js";
 import { detectUnboundedLoop } from "./detectors/unbounded-loop.js";
 import { detectTokenLeakage } from "./detectors/token-leakage.js";
+import { DEFAULT_CONFIG, ValtaConfig } from "./config.js";
 import { Finding, ScanResult } from "./types.js";
 
 const HARDCODED_KEY_PATTERN = /\b(sk-[a-zA-Z0-9]{20,}|sk-ant-[a-zA-Z0-9-]{20,}|sk-proj-[a-zA-Z0-9_-]{20,})\b/;
@@ -29,7 +30,19 @@ function checkHardcodedKeys(filePath: string, findings: Finding[]): void {
   });
 }
 
-export function scanProject(targetDir: string, glob = "**/*.{ts,tsx,js,jsx}"): ScanResult {
+export interface ScanOptions {
+  /** Applied config (see loadConfig). Defaults to no retries multiplier and no custom endpoint costs. */
+  config?: ValtaConfig;
+  /** Path of the config file, echoed back in the result for reporting. */
+  configPath?: string | null;
+}
+
+export function scanProject(
+  targetDir: string,
+  glob = "**/*.{ts,tsx,js,jsx}",
+  options: ScanOptions = {}
+): ScanResult {
+  const config = options.config ?? DEFAULT_CONFIG;
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     compilerOptions: { allowJs: true },
@@ -48,10 +61,10 @@ export function scanProject(targetDir: string, glob = "**/*.{ts,tsx,js,jsx}"): S
 
   for (const sourceFile of sourceFiles) {
     checkHardcodedKeys(sourceFile.getFilePath(), findings);
-    findings.push(...detectMissingBackoff(sourceFile));
-    findings.push(...detectUnboundedLoop(sourceFile));
-    findings.push(...detectTokenLeakage(sourceFile));
+    findings.push(...detectMissingBackoff(sourceFile, config));
+    findings.push(...detectUnboundedLoop(sourceFile, config));
+    findings.push(...detectTokenLeakage(sourceFile, config));
   }
 
-  return { filesScanned: sourceFiles.length, findings };
+  return { filesScanned: sourceFiles.length, findings, configPath: options.configPath ?? null };
 }

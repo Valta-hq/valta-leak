@@ -3,6 +3,7 @@ import { Command } from "commander";
 import path from "node:path";
 import { scanProject } from "./scanner.js";
 import { printReport } from "./report.js";
+import { ConfigError, loadConfig } from "./config.js";
 
 const program = new Command();
 
@@ -16,9 +17,23 @@ program
   )
   .argument("[dir]", "Directory to scan", ".")
   .option("--json", "Output findings as JSON instead of a formatted report")
-  .action((dir: string, opts: { json?: boolean }) => {
+  .option("--config <path>", "Path to a valta.config.json (default: looked up in the scan dir, then the current dir)")
+  .action((dir: string, opts: { json?: boolean; config?: string }) => {
     const targetDir = path.resolve(process.cwd(), dir);
-    const result = scanProject(targetDir);
+
+    let loaded;
+    try {
+      loaded = loadConfig([targetDir, process.cwd()], opts.config);
+    } catch (err) {
+      if (err instanceof ConfigError) {
+        console.error(`[valta-leak] ${err.message}`);
+        process.exitCode = 2;
+        return;
+      }
+      throw err;
+    }
+
+    const result = scanProject(targetDir, undefined, { config: loaded.config, configPath: loaded.path });
 
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));
