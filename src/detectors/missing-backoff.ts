@@ -1,6 +1,7 @@
 import { Node, SourceFile, SyntaxKind, Block } from "ts-morph";
-import { findLlmCalls, extractModelString } from "../llm-call.js";
-import { resolveModelPricing, computeHourlyExposure, PRICING_SNAPSHOT_DATE } from "../pricing.js";
+import { findLlmCalls } from "../llm-call.js";
+import { estimateExposure } from "../estimate.js";
+import { DEFAULT_CONFIG, ValtaConfig } from "../config.js";
 import { Finding } from "../types.js";
 
 const BACKOFF_PATTERN = /setTimeout|sleep\s*\(|delay\s*\(|backoff/i;
@@ -58,17 +59,15 @@ function pushFinding(
   title: string,
   detail: string,
   llmCall: ReturnType<typeof findLlmCalls>[number] | null,
-  approxTokensPerCall: number
+  scope: Node,
+  approxTokensPerCall: number,
+  config: ValtaConfig
 ): void {
   if (severity === "WARN") {
     findings.push({ severity, detectorId: "missing-backoff", title, file, line, detail });
     return;
   }
-  const modelString = llmCall ? extractModelString(llmCall) : null;
-  const { pricing, matched } = resolveModelPricing(modelString ?? "");
-  const inputTokens = approxTokensPerCall;
-  const outputTokens = Math.round(approxTokensPerCall * 0.3);
-  const maxExposurePerHour = computeHourlyExposure({ inputTokens, outputTokens, pricing });
+  const estimate = estimateExposure({ call: llmCall, scope, config, approxTokensPerCall });
   findings.push({
     severity,
     detectorId: "missing-backoff",
@@ -76,12 +75,19 @@ function pushFinding(
     file,
     line,
     detail,
-    maxExposurePerHour,
-    assumptionNote: `Assumes ~${inputTokens} input / ${outputTokens} output tokens per call and ${pricing.assumedLatencySeconds}s latency${matched ? "" : " (model string not recognized — using a mid-range fallback price, verify manually)"}. Pricing snapshot: ${PRICING_SNAPSHOT_DATE}.`,
+    maxExposurePerHour: estimate.maxExposurePerHour,
+    assumptionNote: estimate.assumptionNote,
+    ...(estimate.warnings.length > 0 ? { warnings: estimate.warnings } : {}),
   });
 }
 
-function checkCatchBody(body: Node, file: string, findings: Finding[], approxTokensPerCall: number): void {
+function checkCatchBody(
+  body: Node,
+  file: string,
+  findings: Finding[],
+  approxTokensPerCall: number,
+  config: ValtaConfig
+): void {
   const bodyText = stripComments(body.getText());
   if (BACKOFF_PATTERN.test(bodyText)) return;
 
@@ -103,7 +109,9 @@ function checkCatchBody(body: Node, file: string, findings: Finding[], approxTok
         "Unbounded recursive retry loop calling an LLM SDK method",
         `If the API call fails, "${enclosingName}" retries itself immediately with no exponential backoff or sleep interval, and no attempt limit — this will fire continuously on any transient error.`,
         llmCallsInFn[0],
-        approxTokensPerCall
+        functionBodyNode(enclosingFn),
+        approxTokensPerCall,
+        config
       );
       return;
     }
@@ -123,17 +131,23 @@ function checkCatchBody(body: Node, file: string, findings: Finding[], approxTok
       "Retry on LLM API failure with no backoff",
       `This catch block retries the API call with no exponential backoff or sleep — safe for a single retry, but risky if this is ever called in a loop or from a caller that retries too.`,
       null,
-      approxTokensPerCall
+      body,
+      approxTokensPerCall,
+      config
     );
   }
 }
 
-export function detectMissingBackoff(sourceFile: SourceFile, approxTokensPerCall = 500): Finding[] {
+export function detectMissingBackoff(
+  sourceFile: SourceFile,
+  config: ValtaConfig = DEFAULT_CONFIG,
+  approxTokensPerCall = 500
+): Finding[] {
   const findings: Finding[] = [];
   const file = sourceFile.getFilePath();
 
   for (const catchClause of sourceFile.getDescendantsOfKind(SyntaxKind.CatchClause)) {
-    checkCatchBody(catchClause.getBlock(), file, findings, approxTokensPerCall);
+    checkCatchBody(catchClause.getBlock(), file, findings, approxTokensPerCall, config);
   }
 
   for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -143,7 +157,7 @@ export function detectMissingBackoff(sourceFile: SourceFile, approxTokensPerCall
     if (!handler) continue;
     if (Node.isArrowFunction(handler) || Node.isFunctionExpression(handler)) {
       const body = handler.getBody();
-      checkCatchBody(body, file, findings, approxTokensPerCall);
+      checkCatchBody(body, file, findings, approxTokensPerCall, config);
     }
   }
 
