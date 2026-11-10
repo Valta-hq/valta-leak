@@ -38,6 +38,17 @@ Requires Node 18 or newer.
 | Large system prompt in a loop | A static system prompt of 300+ tokens declared inside a loop, so it is sent and billed again on every iteration. The token count is measured from the actual text. |
 | Hardcoded API key | A literal `sk-...`, `sk-ant-...`, or `sk-proj-...` string in source. |
 
+### Supported Loop & Risk Patterns
+
+* **Currently Detected:**
+  * Unbounded `while (true)` and `for (;;)` loops containing LLM API calls.
+  * Unbounded loops that append to a message history array which is re-sent on each call (priced with a compounding, quadratic cost estimate). Whether the history is ever truncated is not checked.
+  * Retries on LLM API failure (`catch` blocks and `.catch()` handlers) with no exponential backoff or sleep. Circuit breakers are not detected.
+* **On the Roadmap (Not Yet Covered):**
+  * Negated state-flag loops (e.g., `while (!done)` or `while (!isComplete)`).
+  * `do...while` loops.
+  * Deeply nested cross-file recursive agent handoffs.
+
 ## Example output
 
 ```
@@ -76,7 +87,7 @@ total = sum for i = 1..M of ( base prompt cost + (i x average message size) ) + 
 
 `M` is the number of calls that fit in an hour at the assumed latency, and the input size of any single call is capped at the model's context window. The average message size is the assumed output size of one call unless you set `average_message_tokens` in the config file.
 
-**Retries and per-call fees (`valta.config.json`).** See [Configuration](#configuration).
+**Retries and per-call fees.** The token cost of every call is multiplied by an SDK retry factor. If you do not set `sdk_default_retries` in `valta.config.json`, valta-leak assumes a conservative default of 2x (the standard OpenAI and Anthropic SDK retry default) and prints an assumption note in the output. See [Configuration](#configuration).
 
 **Values it can't read.** If the model name or token limit comes from something only known at runtime (`model: process.env.MODEL`, a function argument, a spread options object), valta-leak does not guess low. It prints a warning with the line number and falls back to the most expensive listed prices with a full context window in and a large completion out:
 
@@ -88,7 +99,7 @@ A model name held in a same-file `const` is resolved normally and is not treated
 
 ## Configuration
 
-valta-leak looks for a `valta.config.json` in the scanned directory, then in the current directory. Use `--config <path>` to point at a specific file. Every field is optional.
+valta-leak looks for a `valta.config.json` in the scanned directory, then in the current directory. Use `--config <path>` to point at a specific file. Every field is optional. Without one, the default 2x retry multiplier applies.
 
 ```json
 {
@@ -105,7 +116,7 @@ valta-leak looks for a `valta.config.json` in the scanned directory, then in the
 
 | Field | What it does |
 | --- | --- |
-| `sdk_default_retries` | Whole number, 1 or more (default 1). The token cost of each LLM call is multiplied by this, to account for an SDK that silently re-sends failed requests. |
+| `sdk_default_retries` | Whole number, 1 or more (default 2 when not set). The token cost of each LLM call is multiplied by this, to account for an SDK that silently re-sends failed requests. Set it to `1` if your client has retries turned off. When you leave it out, the report ends with an assumption note saying the default was applied. |
 | `custom_endpoint_costs` | List of `{ match_url, cost_per_call }`. Any call inside a flagged loop or function whose first argument contains `match_url` (directly, or through a same-file `const`) adds `cost_per_call` dollars per iteration. The fee is added after the retry multiplier. Use this for paid proxies, scraping APIs and other non-LLM tools. |
 | `average_message_tokens` | Positive number. Average size of one message appended to history per iteration, used by the growing-history estimate. |
 
@@ -127,7 +138,7 @@ Please read these before trusting a result.
 
 - **JavaScript and TypeScript only.** Python agents (LangChain, CrewAI and so on) are not scanned.
 - **It only recognizes a few call shapes:** `.messages.create(...)`, `.chat.completions.create(...)` and `.completions.create(...)`. Other SDKs and wrappers, such as the Vercel AI SDK, LangChain's `.invoke`, Gemini's `.generateContent`, or raw `fetch` calls, are not detected yet.
-- **It only recognizes two loop shapes:** `while (true)` and `for (;;)`. Loops like `while (!done)`, `do...while`, and recursion-based agents are not covered.
+- **Loop coverage is narrow.** See [Supported Loop & Risk Patterns](#supported-loop--risk-patterns) for exactly what is and is not detected.
 - **It is a heuristic, not a proof.** Whether a loop is "bounded" is decided by looking for patterns in the loop's text, such as a `maxSteps` style name, a step comparison, or an `AbortController`. This means:
   - a normal tool-use loop that exits when the model stops calling tools can be flagged even though it terminates in practice, and
   - a limit that exists somewhere the tool can't see, such as in a wrapper or a shared helper, can be missed.

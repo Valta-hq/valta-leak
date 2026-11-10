@@ -28,4 +28,8 @@ export interface ScanResult {
   findings: Finding[];
   /** Path of the valta.config.json that was applied, or null when none was used. */
   configPath?: string | null;
+  /** The retry multiplier applied to every dollar figure in this scan. */
+  retryMultiplier?: number;
+  /** True when the multiplier is the built-in default rather than the user's `sdk_default_retries`. */
+  retryMultiplierIsDefault?: boolean;
 }

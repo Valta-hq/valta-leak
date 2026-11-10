@@ -153,8 +153,10 @@ export function estimateExposure(p: EstimateParams): Estimate {
         `${callsPerHour} calls/hour summed as base + i x message size, not a flat per-call cost.`
     );
   }
-  if (p.config.sdk_default_retries > 1) {
+  if (p.config.retries_from_config) {
     parts.push(`Token cost multiplied by sdk_default_retries = ${p.config.sdk_default_retries} (valta.config.json).`);
+  } else {
+    parts.push(`Token cost multiplied by an assumed default of ${p.config.sdk_default_retries}x for SDK retries.`);
   }
   for (const h of hits) {
     parts.push(

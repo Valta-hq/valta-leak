@@ -55,6 +55,23 @@ export function printReport(result: ScanResult, cwd: string): void {
     console.log("");
   }
 
+  const priced = findings.filter((f) => f.maxExposurePerHour !== undefined);
+  if (priced.length > 0) {
+    const combined = priced.reduce((sum, f) => sum + (f.maxExposurePerHour ?? 0), 0);
+    console.log(`\n⚠️  [Valta Leak Scan Complete]`);
+    console.log(
+      `Estimated Worst-Case Ceiling: $${combined.toFixed(2)}/hr ` +
+        `(sum of ${priced.length} finding${priced.length === 1 ? "" : "s"} running at once)`
+    );
+    if (result.retryMultiplierIsDefault && result.retryMultiplier !== undefined) {
+      console.log(
+        `ℹ️  Assumption Note: Applied a conservative ${result.retryMultiplier}x default SDK retry multiplier. ` +
+          `Override in valta.config.json.`
+      );
+    }
+    console.log("");
+  }
+
   const total = failCount + warnCount;
   console.log(
     `[valta-leak] Analysis complete. ${total} structural cost vulnerabilit${total === 1 ? "y" : "ies"} found ` +

@@ -47,9 +47,26 @@ describe("valta-leak scanner", () => {
       scanProject(FIXTURES, file, { config }).findings.find((f) => f.detectorId === "unbounded-loop");
 
     it("multiplies the token ceiling by sdk_default_retries", () => {
-      const base = loop("flat-loop.ts")!.maxExposurePerHour!;
+      const base = loop("flat-loop.ts", parseConfig({ sdk_default_retries: 1 }))!.maxExposurePerHour!;
       const withRetries = loop("flat-loop.ts", parseConfig({ sdk_default_retries: 3 }))!.maxExposurePerHour!;
       expect(withRetries).toBeCloseTo(base * 3, 6);
+    });
+
+    it("applies a conservative 2x default when no sdk_default_retries is configured", () => {
+      const noRetriesSet = scanProject(FIXTURES, "flat-loop.ts");
+      const explicitOne = loop("flat-loop.ts", parseConfig({ sdk_default_retries: 1 }))!.maxExposurePerHour!;
+      expect(noRetriesSet.retryMultiplier).toBe(2);
+      expect(noRetriesSet.retryMultiplierIsDefault).toBe(true);
+      expect(noRetriesSet.findings.find((f) => f.detectorId === "unbounded-loop")!.maxExposurePerHour).toBeCloseTo(
+        explicitOne * 2,
+        6
+      );
+    });
+
+    it("does not report the default as assumed when the user set sdk_default_retries", () => {
+      const result = scanProject(FIXTURES, "flat-loop.ts", { config: parseConfig({ sdk_default_retries: 3 }) });
+      expect(result.retryMultiplier).toBe(3);
+      expect(result.retryMultiplierIsDefault).toBe(false);
     });
 
     it("adds cost_per_call for calls to a configured endpoint", () => {
@@ -80,6 +97,7 @@ describe("valta-leak scanner", () => {
         inputTokens: 500,
         outputTokens: 150,
         pricing,
+        retries: 2, // default SDK retry multiplier
         history: { avgMessageTokens: 150 },
       }).maxExposurePerHour;
       expect(hit.maxExposurePerHour).toBeCloseTo(expected, 6);
