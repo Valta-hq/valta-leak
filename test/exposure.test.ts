@@ -68,10 +68,15 @@ describe("parseConfig", () => {
     expect(cfg.custom_endpoint_costs).toHaveLength(1);
   });
 
-  it("defaults to no multiplier and no extra costs", () => {
+  it("defaults to the 2x SDK retry multiplier and no extra costs, flagged as not user-configured", () => {
     const cfg = parseConfig({});
-    expect(cfg.sdk_default_retries).toBe(1);
+    expect(cfg.sdk_default_retries).toBe(2);
+    expect(cfg.retries_from_config).toBe(false);
     expect(cfg.custom_endpoint_costs).toEqual([]);
+  });
+
+  it("marks the multiplier as user-configured when sdk_default_retries is set", () => {
+    expect(parseConfig({ sdk_default_retries: 1 }).retries_from_config).toBe(true);
   });
 
   it("rejects bad values with a message naming the field", () => {

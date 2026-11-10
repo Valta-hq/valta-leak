@@ -11,8 +11,10 @@ import path from "node:path";
  *     ]
  *   }
  *
- * Everything is optional. With no file, the scanner behaves exactly as it did
- * before this file existed (retries = 1, no extra per-call costs).
+ * Everything is optional. Without `sdk_default_retries` the scanner applies a
+ * conservative default multiplier of DEFAULT_SDK_RETRIES (the OpenAI and
+ * Anthropic SDKs both retry failed requests up to 2 times by default) and says
+ * so in its output.
  */
 export interface CustomEndpointCost {
   /** Substring matched against the URL passed to a call (e.g. "://proxy-scraping.com"). */
@@ -23,10 +25,13 @@ export interface CustomEndpointCost {
 
 export interface ValtaConfig {
   /**
-   * How many times an SDK silently re-sends a request on failure. The token
-   * ceiling of every LLM call is multiplied by this. Default 1 (no multiplier).
+   * Multiplier applied to the token cost of every LLM call, to account for an
+   * SDK silently re-sending failed requests. This is the EFFECTIVE value:
+   * the configured number, or DEFAULT_SDK_RETRIES when none was configured.
    */
   sdk_default_retries: number;
+  /** True only when the user set `sdk_default_retries` themselves. */
+  retries_from_config: boolean;
   custom_endpoint_costs: CustomEndpointCost[];
   /**
    * Average size, in tokens, of one message appended to a conversation history
@@ -38,8 +43,12 @@ export interface ValtaConfig {
 
 export const CONFIG_FILE_NAME = "valta.config.json";
 
+/** Standard OpenAI / Anthropic SDK default retry count, used when the user configures none. */
+export const DEFAULT_SDK_RETRIES = 2;
+
 export const DEFAULT_CONFIG: ValtaConfig = {
-  sdk_default_retries: 1,
+  sdk_default_retries: DEFAULT_SDK_RETRIES,
+  retries_from_config: false,
   custom_endpoint_costs: [],
 };
 
@@ -68,6 +77,7 @@ export function parseConfig(raw: unknown, source = CONFIG_FILE_NAME): ValtaConfi
       throw new ConfigError(`${source}: "sdk_default_retries" must be a whole number >= 1.`);
     }
     config.sdk_default_retries = n;
+    config.retries_from_config = true;
   }
 
   if (raw.average_message_tokens !== undefined) {

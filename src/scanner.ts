@@ -66,5 +66,11 @@ export function scanProject(
     findings.push(...detectTokenLeakage(sourceFile, config));
   }
 
-  return { filesScanned: sourceFiles.length, findings, configPath: options.configPath ?? null };
+  return {
+    filesScanned: sourceFiles.length,
+    findings,
+    configPath: options.configPath ?? null,
+    retryMultiplier: config.sdk_default_retries,
+    retryMultiplierIsDefault: !config.retries_from_config,
+  };
 }
